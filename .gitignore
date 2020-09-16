@@ -1,5 +1,6 @@
 .ipynb_checkpoints/
 old_notebooks/
-Data/Weather_Data
+Data/Weather_Data/
 config/
 catboost_info/
+Data/buffer/
