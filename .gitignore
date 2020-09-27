@@ -4,3 +4,4 @@ Data/Weather_Data/
 config/
 catboost_info/
 Data/buffer/
+.idea/
