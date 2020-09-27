@@ -334,3 +334,43 @@ class DataCollection():
 
         return df_county_demo
 
+    def load_Atlas(self,fpath='./Data/Atlas County Info/RuralAtlasData22.xlsx'):
+        xls_atlas = pd.ExcelFile(fpath)
+        df_atlas = pd.DataFrame()
+        for sheet in xls_atlas.sheet_names:
+            if sheet != 'Read Me' and sheet != 'Variable Name Lookup':
+                df_atlas_sheet = pd.read_excel(xls_atlas, sheet_name=sheet)
+                df_atlas_sheet = df_atlas_sheet.drop(columns=['State', 'County'])
+
+                if 'FIPStxt' not in df_atlas_sheet.columns:
+                    df_atlas_sheet = df_atlas_sheet.iloc[1:]
+                else:
+                    df_atlas_sheet = df_atlas_sheet.rename(columns={'FIPStxt': 'FIPS'})
+
+                if len(df_atlas) != 0:
+                    df_atlas = df_atlas.join(df_atlas_sheet.set_index('FIPS'), on='FIPS')
+                else:
+                    df_atlas = df_atlas_sheet.copy()
+        df_atlas.FIPS = df_atlas.FIPS.astype(int).astype(str).str.zfill(5)
+        df_atlas = df_atlas.fillna(df_atlas.mean())
+        return df_atlas
+
+    def load_CUSP(self,sheet_name, excel_fname='./Data/COVID-19 US state policy database (CUSP).xlsx', remove_cols=[]):
+        xls = pd.ExcelFile(excel_fname)
+        df = pd.read_excel(xls, sheet_name)
+        df = df.dropna()
+        df = df.drop(columns=['State Abbreviation', 'State FIPS Code'] + remove_cols)
+        start_date = datetime.datetime.strptime('2020-03-01', '%Y-%m-%d')
+        for col in df.columns:
+
+            if col != 'State':
+                if df[col].isin([0, 1]).all() or df[col].isin([0, 1, 2]).all():
+                    df[col] = df[col].fillna(df[col].min())
+                    continue
+                else:
+                    df[col] = pd.to_datetime(df[col], format='%Y-%m-%d', errors='coerce')
+                    df[col] = df[col].fillna(df[col].max())
+                    df['Days_' + col] = (df[col] - start_date).dt.days
+                    df = df.drop(columns=[col])
+        df = df.rename(columns={'State': 'STATE'})
+        return df
