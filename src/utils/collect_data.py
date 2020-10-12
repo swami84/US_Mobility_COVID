@@ -23,27 +23,30 @@ class DataCollection():
         else:
             return 'Weekday'
 
-    def get_mobility_data(self,rolling_mean=False):
+    def get_mobility_data(self,rolling_mean=False,rolling_mean_days=7):
         mob_index_url = 'https://raw.githubusercontent.com/descarteslabs/DL-COVID-19/master/DL-us-mobility-daterow.csv'
 
-        df_mobility_index = pd.read_csv(mob_index_url, parse_dates=['date'])
-        df_mobility_index = df_mobility_index.dropna(subset=['fips', 'admin2'])
-        df_mobility_index.fips = df_mobility_index.fips.astype(int)
-        df_mobility_index.fips = df_mobility_index.fips.astype(str).str.zfill(5)
-        df_mobility_index = df_mobility_index.rename(columns={'admin1': 'STATE', 'admin2': 'COUNTY'})
-        df_mobility_index = df_mobility_index.drop(columns=['country_code', 'admin_level'])
-        df_mobility_index['weekday'] = df_mobility_index.date.dt.day_name()
-        df_mobility_index = df_mobility_index[df_mobility_index.m50 < 200]
-        df_mobility_index['weekend'] = df_mobility_index['weekday'].apply(lambda x: self.weekend(x))
+        df_mobility = pd.read_csv(mob_index_url, parse_dates=['date'])
+        df_mobility = df_mobility.dropna(subset=['fips', 'admin2'])
+        df_mobility.fips = df_mobility.fips.astype(int)
+        df_mobility.fips = df_mobility.fips.astype(str).str.zfill(5)
+        df_mobility = df_mobility.rename(columns={'admin1': 'STATE', 'admin2': 'COUNTY'})
+        df_mobility = df_mobility.drop(columns=['country_code', 'admin_level'])
+        df_mobility['weekday'] = df_mobility.date.dt.day_name()
+        df_mobility = df_mobility[df_mobility.m50 < 200]
+        df_mobility['weekend'] = df_mobility['weekday'].apply(lambda x: self.weekend(x))
 
         if rolling_mean:
             mob_col = ['m50']
-            m50 = df_mobility_index.groupby(['fips', 'date'])[mob_col].mean()
-            m50['rolling_mean_mob'] = m50[mob_col].rolling(7, min_periods=1).mean()
-            m50 = m50.reset_index()
-            return m50
+            df_mobility_rm = \
+            df_mobility.sort_values(['fips', 'date']).groupby('fips').rolling(rolling_mean_days, min_periods=1)[
+                mob_col].mean().reset_index(1, drop=True)
+            df_mobility_rm['date'] = df_mobility.sort_values(['fips', 'date'])['date'].values
+            df_mobility_rm = df_mobility_rm.reset_index()
+            return df_mobility_rm
 
-        return df_mobility_index
+
+        return df_mobility
 
     def get_spend_data(self):
         county_spending_url = 'https://raw.githubusercontent.com/OpportunityInsights/EconomicTracker/main/data/Affinity%20-%20County%20-%20Daily.csv'
@@ -374,3 +377,26 @@ class DataCollection():
                     df = df.drop(columns=[col])
         df = df.rename(columns={'State': 'STATE'})
         return df
+
+    def load_unemployment(self, fpath='./Data/datasets/Demographics/laucntycur14.xlsx'):
+        df_ur = pd.read_excel(fpath, header=4)
+        df_ur = df_ur.rename(columns={'Code': 'State_FIPS', 'Code.1': 'County_FIPS',
+                                      '(%)': 'Unemployed_Pct', 'Force': 'Labor_Force'})
+        df_ur = df_ur.dropna()
+        df_ur['fips'] = df_ur['State_FIPS'].astype(int).astype(str).str.zfill(2) + df_ur['County_FIPS'].astype(
+            int).astype(str).str.zfill(3)
+        df_ur['Period'] = df_ur['Period'].str[:6]
+        df_ur['Period'] = pd.to_datetime(df_ur['Period'], format='%b-%y')
+        df_ur['Year'] = df_ur['Period'].dt.year
+        df_ur['Month'] = df_ur['Period'].dt.month
+        df_ur['Period'] = df_ur['Period'].dt.strftime('%b-%y')
+        df_ur = df_ur.drop(columns=['LAUS Code', 'State_FIPS', 'County_FIPS', 'County Name/State Abbreviation'])
+        val_cols = [col for col in df_ur.columns if col != 'fips' and col not in ['Year', 'Month', 'Period']]
+
+        for col in val_cols:
+            df_ur[col] = pd.to_numeric(df_ur[col], errors='coerce')
+            df_ur[col] = df_ur[col].fillna(df_ur.groupby('fips')[col].transform('mean'))
+
+        df_ur = df_ur.groupby(['fips', 'Period'])[val_cols].mean().unstack(level=1)
+        df_ur.columns = df_ur.columns.map('|'.join).str.strip('|')
+        return df_ur
